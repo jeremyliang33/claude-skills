@@ -8,7 +8,10 @@ description: >
   the user mentions HubSpot email templates, email HTML, or wants to code up a
   Figma email frame. The skill handles the full workflow: inspecting the Figma file,
   generating email-safe HTML with inline styles, uploading images directly to HubSpot
-  via API, setting up a local preview server, and verifying changes after every edit.
+  via API, setting up a local preview server, verifying changes after every edit, and
+  automatically running the final HTML through testi.at email client testing to
+  generate a shareable link showing screenshots across real email clients in both
+  light and dark mode.
 ---
 
 # Figma → HTML Email (with HubSpot Image Upload)
@@ -221,6 +224,106 @@ document.querySelectorAll('a[href]').map(a => ({ text: a.textContent.trim(), hre
 <span style="display:inline-block;width:12px;line-height:12px;font-size:0;">&nbsp;</span>
 ```
 
+## Step 6: Visual QA — Compare HTML Against Figma
+
+Before running email client tests, do a deliberate side-by-side comparison between the rendered
+HTML and the original Figma design. This catches mismatches that are easy to miss when building
+incrementally — things like slightly wrong colors, extra padding, missing dividers, or font weight
+differences.
+
+### How to run the comparison
+
+1. **Take a full-page screenshot of the rendered HTML** using `preview_screenshot`. If the email
+   is taller than the viewport, scroll through and capture the key sections.
+
+2. **Pull a fresh screenshot from Figma** using `get_screenshot` on the original email frame
+   node ID (the same one used in Step 1). This gives you the ground-truth design at the correct
+   width.
+
+3. **Go section by section** from top to bottom — header, hero, body sections, footer. For each
+   section, visually compare:
+
+   | What to check | Common issues |
+   |---------------|---------------|
+   | Divider/border colors | Wrong hex — use `preview_eval` to inspect computed `border-top` color |
+   | Section padding & spacing | Extra top/bottom padding on `<td>` elements |
+   | Background colors | Off-white vs true white, subtle gray differences |
+   | Font size, weight, line-height | Bold vs regular, slightly too large/small |
+   | Image sizing and alignment | Images wider/narrower than spec, misaligned center |
+   | Button/CTA appearance | Wrong border-radius, padding, or text weight |
+   | Social icon row | Icons stacking vertically instead of inline |
+
+4. **For any discrepancy**, use `preview_inspect` on the specific element to read its computed
+   styles, then compare against the Figma `get_design_context` values. Fix in the HTML, then
+   reload the preview to confirm.
+
+5. **Repeat until the rendered email matches the Figma design** to the degree that any remaining
+   differences are inherent email-client rendering constraints (e.g. web fonts falling back),
+   not coding errors.
+
+> This step exists because small issues compound — a slightly wrong divider color plus a few
+> pixels of extra padding plus a font weight difference adds up to an email that "looks off" in
+> ways that are hard to pinpoint. Comparing against the source design directly is the fastest
+> way to find and fix all of them at once.
+
+---
+
+## Step 7: Email Client Testing via testi.at
+
+After confirming the HTML file is complete and all images are uploaded, run the email through
+[testi.at](https://testi.at) to get real client screenshots across major email apps.
+
+> **Prerequisite:** The user must already be logged in to testi.at. If they're not, direct them
+> to create a free account at testi.at and log in before proceeding.
+
+### Automated workflow (use Claude in Chrome tools)
+
+1. **Navigate to testi.at** — open or verify the user is on `https://testi.at`
+
+2. **Start a new test** — click "New Test", then select "Paste Your Email Code"
+
+3. **Inject the HTML** — the editor uses ACE. Do NOT try to click into the textarea; inject
+   directly via JavaScript:
+   ```javascript
+   ace.edit('aceeditor').setValue(html, -1)
+   ```
+   Read the HTML file content first, then pass it as the `html` variable in the JS call.
+
+4. **Select email clients** — click "Select Email Clients". The free-tier clients are
+   pre-selected by default. Confirm these five are toggled **on** and no paid clients are added:
+   - Office 365 (light)
+   - iPhone 12 Mini iOS 14 (light)
+   - Android 12 Gmail (dark)
+   - AOL Chrome (light)
+   - Roundcube Chrome (light)
+
+   > If a paywall/upgrade popup appears, dismiss it — this means a paid client was accidentally
+   > selected. Stick to only the five free-tier clients above.
+
+5. **Start the test** — click "Start". testi.at will begin generating screenshots.
+
+6. **Wait for results** — screenshots take approximately 20–30 seconds to render. Wait until
+   all five client previews are loaded before proceeding.
+
+7. **Return the results link** — the project URL appears in the browser address bar in the
+   format `https://testi.at/proj/[id]`. Share this link with the user as the shareable
+   results page showing all five clients.
+
+### Free-tier coverage summary
+
+| Client | Mode |
+|--------|------|
+| Office 365 | Light |
+| iPhone 12 Mini iOS 14 | Light |
+| Android 12 Gmail | Dark |
+| AOL Chrome | Light |
+| Roundcube Chrome | Light |
+
+For broader coverage (Gmail Web, Outlook 2024, Apple Mail, more dark mode variants), the user
+needs a paid testi.at plan. Mention this if they ask about clients not in the list above.
+
+---
+
 ## Checklist Before Handing Off
 
 - [ ] All images uploaded to HubSpot — permanent CDN URLs used in HTML (no Figma temp URLs)
@@ -231,3 +334,5 @@ document.querySelectorAll('a[href]').map(a => ({ text: a.textContent.trim(), hre
 - [ ] Social icons render inline (not stacked)
 - [ ] HubSpot tokens in footer
 - [ ] Preview verified in browser
+- [ ] Visual QA pass complete — HTML matches Figma design section by section
+- [ ] testi.at results link generated and shared with user
